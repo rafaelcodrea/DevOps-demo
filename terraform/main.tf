@@ -46,7 +46,7 @@ resource "aws_security_group" "ec2_sg" {
 
 resource "aws_instance" "main" {
   ami                    = var.ami_id
-  instance_type          = "t2.micro"
+  instance_type          = "t3.micro"
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
 
   tags = {
