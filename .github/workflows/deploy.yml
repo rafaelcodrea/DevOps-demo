@@ -1,0 +1,90 @@
+name: Deploy EC2 with Terraform
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  terraform-deploy:
+    name: Terraform Deploy EC2
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./terraform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -no-color -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+      - name: Get Terraform Outputs
+        id: outputs
+        run: |
+          INSTANCE_ID=$(terraform output -raw instance_id)
+          INSTANCE_IP=$(terraform output -raw instance_public_ip)
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+          echo "instance_ip=$INSTANCE_IP" >> $GITHUB_OUTPUT
+
+      - name: Discord Notification - Success
+        if: success()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -X POST "$DISCORD_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "✅ EC2 Instance Created Successfully!",
+                "color": 3066993,
+                "fields": [
+                  {"name": "🖥️ Instance ID", "value": "'"${{ steps.outputs.outputs.instance_id }}"'", "inline": true},
+                  {"name": "🌐 Public IP", "value": "'"${{ steps.outputs.outputs.instance_ip }}"'", "inline": true},
+                  {"name": "👤 Triggered by", "value": "'"${{ github.actor }}"'", "inline": true}
+                ],
+                "footer": {"text": "GitHub Actions • Terraform Deploy"}
+              }]
+            }'
+
+      - name: Discord Notification - Failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -X POST "$DISCORD_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "❌ EC2 Deployment FAILED",
+                "color": 15158332,
+                "fields": [
+                  {"name": "👤 Triggered by", "value": "'"${{ github.actor }}"'", "inline": true},
+                  {"name": "🔍 Logs", "value": "[View Run]('"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"')", "inline": true}
+                ],
+                "footer": {"text": "GitHub Actions • Terraform Deploy"}
+              }]
+            }'
